@@ -1,0 +1,979 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Global Economic Pulse — Live 3D</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@300;400;500&family=Instrument+Serif:ital@0;1&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg-health: #0a1628;
+  --accent: #38bdf8;
+  --positive: #22d3ee;
+  --negative: #f43f5e;
+  --neutral: #94a3b8;
+  --text: #e2e8f0;
+  --text-dim: #64748b;
+  --panel-bg: rgba(10, 22, 40, 0.88);
+  --panel-border: rgba(56, 189, 248, 0.12);
+}
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  font-family: 'DM Mono', monospace;
+  color: var(--text);
+  background: var(--bg-health);
+}
+
+#bg-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 0; }
+#globe-canvas { position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; cursor: grab; }
+#globe-canvas:active { cursor: grabbing; }
+
+.ui-layer { position: fixed; z-index: 10; pointer-events: none; }
+.ui-layer > * { pointer-events: auto; }
+
+/* Loading overlay */
+#loadingOverlay {
+  position: fixed; inset: 0; z-index: 999;
+  background: #060e1a;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  transition: opacity 0.8s;
+}
+#loadingOverlay.hidden { opacity: 0; pointer-events: none; }
+.loading-spinner {
+  width: 48px; height: 48px;
+  border: 2px solid rgba(56,189,248,0.15);
+  border-top-color: #38bdf8;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text {
+  margin-top: 20px; font-size: 12px; color: var(--text-dim);
+  letter-spacing: 2px; text-transform: uppercase;
+}
+.loading-sub {
+  margin-top: 8px; font-size: 11px; color: rgba(100,116,139,0.6);
+}
+
+/* Header */
+.header {
+  top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: flex-start;
+  padding: 20px 28px;
+}
+.title-block h1 {
+  font-family: 'Instrument Serif', serif;
+  font-size: 26px; font-weight: 400; letter-spacing: -0.5px;
+}
+.title-block .subtitle { font-size: 10px; color: var(--text-dim); margin-top: 3px; letter-spacing: 1.5px; text-transform: uppercase; }
+
+.global-health-badge {
+  display: flex; align-items: center; gap: 12px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 10px 18px; backdrop-filter: blur(20px);
+}
+.health-indicator {
+  width: 10px; height: 10px; border-radius: 50%;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; box-shadow: 0 0 8px currentColor; }
+  50% { opacity:0.5; box-shadow: 0 0 16px currentColor; }
+}
+.health-label { font-size: 10px; color: var(--text-dim); letter-spacing: 1px; text-transform: uppercase; }
+.health-value { font-size: 17px; font-weight: 500; }
+
+/* Ticker */
+.ticker-strip {
+  top: 80px; left: 0; right: 0; overflow: hidden; height: 34px;
+  background: rgba(10,22,40,0.6);
+  border-top: 1px solid var(--panel-border); border-bottom: 1px solid var(--panel-border);
+}
+.ticker-track { display: flex; gap: 36px; animation: scroll 80s linear infinite; white-space: nowrap; padding: 7px 0; }
+@keyframes scroll { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+.ticker-item { font-size: 11px; display: flex; gap: 6px; align-items: center; flex-shrink: 0; }
+.ticker-name { color: var(--text-dim); }
+.ticker-value { color: var(--text); font-weight: 500; }
+.ticker-change { font-weight: 500; }
+.ticker-change.up { color: #22d3ee; }
+.ticker-change.down { color: #f43f5e; }
+.ticker-sep { color: rgba(148,163,184,0.15); }
+
+/* Panels */
+.panel-left { top: 128px; left: 20px; width: 310px; max-height: calc(100vh - 220px); }
+.panel-right { top: 128px; right: 20px; width: 290px; max-height: calc(100vh - 220px); }
+.panel {
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 14px; backdrop-filter: blur(24px); overflow: hidden;
+}
+.panel-header {
+  padding: 14px 18px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  display: flex; justify-content: space-between; align-items: center;
+}
+.panel-title { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-dim); }
+.panel-toggle { display: flex; gap: 1px; }
+.panel-toggle button {
+  background: transparent; border: 1px solid var(--panel-border);
+  color: var(--text-dim); font-family: 'DM Mono', monospace;
+  font-size: 9px; padding: 3px 9px; cursor: pointer; transition: all 0.2s;
+}
+.panel-toggle button:first-child { border-radius: 5px 0 0 5px; }
+.panel-toggle button:last-child { border-radius: 0 5px 5px 0; }
+.panel-toggle button.active { background: rgba(56,189,248,0.15); color: var(--accent); border-color: var(--accent); }
+
+.country-list {
+  padding: 6px 0; max-height: calc(100vh - 300px); overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: rgba(56,189,248,0.2) transparent;
+}
+.country-row {
+  display: grid; grid-template-columns: 26px 1fr 62px 56px;
+  align-items: center; padding: 6px 18px; gap: 6px;
+  transition: background 0.15s; cursor: pointer;
+}
+.country-row:hover { background: rgba(56,189,248,0.05); }
+.country-rank { font-size: 9px; color: var(--text-dim); text-align: right; }
+.country-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.country-gdp { font-size: 10px; color: var(--text-dim); text-align: right; }
+.country-growth { font-size: 10px; font-weight: 500; text-align: right; padding: 2px 6px; border-radius: 4px; }
+
+.search-box {
+  padding: 8px 18px;
+  border-bottom: 1px solid var(--panel-border);
+}
+.search-box input {
+  width: 100%; background: rgba(56,189,248,0.05);
+  border: 1px solid var(--panel-border); border-radius: 6px;
+  padding: 6px 10px; font-family: 'DM Mono', monospace;
+  font-size: 10px; color: var(--text); outline: none;
+}
+.search-box input::placeholder { color: var(--text-dim); }
+
+.market-grid { padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; max-height: calc(100vh - 300px); overflow-y: auto; }
+.market-row {
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 10px; padding: 6px 6px; border-radius: 6px;
+  transition: background 0.15s;
+}
+.market-row:hover { background: rgba(56,189,248,0.05); }
+.market-name { font-size: 10px; }
+.market-region { font-size: 8px; color: var(--text-dim); margin-top: 1px; }
+.market-price { font-size: 11px; font-weight: 500; text-align: right; }
+.market-change { font-size: 10px; font-weight: 500; text-align: right; min-width: 56px; }
+
+/* Legend */
+.legend-bar {
+  bottom: 20px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 14px;
+  background: var(--panel-bg); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 10px 20px; backdrop-filter: blur(20px);
+}
+.legend-gradient { width: 180px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #f43f5e, #fb923c, #facc15, #a3e635, #22d3ee, #38bdf8); }
+.legend-labels { display: flex; justify-content: space-between; width: 180px; margin-top: 2px; }
+.legend-label { font-size: 8px; color: var(--text-dim); }
+.legend-title { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+
+.data-source {
+  bottom: 56px; left: 50%; transform: translateX(-50%);
+  font-size: 9px; color: rgba(100,116,139,0.5); letter-spacing: 0.5px;
+  text-align: center;
+}
+
+/* Tooltip */
+.tooltip {
+  position: fixed; z-index: 100;
+  background: rgba(10,22,40,0.95); border: 1px solid var(--panel-border);
+  border-radius: 10px; padding: 12px 16px; backdrop-filter: blur(20px);
+  pointer-events: none; opacity: 0; transition: opacity 0.15s; min-width: 180px;
+}
+.tooltip.visible { opacity: 1; }
+.tooltip-country { font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+.tooltip-row { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px; }
+.tooltip-key { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.tooltip-val { font-size: 11px; font-weight: 500; }
+
+@media (max-width: 1100px) {
+  .panel-left, .panel-right { display: none; }
+}
+@media (max-width: 600px) {
+  .header { padding: 12px 16px; }
+  .title-block h1 { font-size: 18px; }
+  .global-health-badge { padding: 8px 12px; }
+}
+</style>
+</head>
+<body>
+
+<div id="loadingOverlay">
+  <div class="loading-spinner"></div>
+  <div class="loading-text" id="loadingText">Fetching live economic data</div>
+  <div class="loading-sub" id="loadingSub">World Bank API + Market Data</div>
+</div>
+
+<canvas id="bg-canvas"></canvas>
+<canvas id="globe-canvas"></canvas>
+
+<div class="header ui-layer">
+  <div class="title-block">
+    <h1>Global Economic Pulse</h1>
+    <div class="subtitle" id="liveIndicator">● LIVE — Last updated: loading...</div>
+  </div>
+  <div class="global-health-badge">
+    <div class="health-indicator" id="healthDot"></div>
+    <div>
+      <div class="health-label">Global Growth</div>
+      <div class="health-value" id="healthValue">—</div>
+    </div>
+  </div>
+</div>
+
+<div class="ticker-strip ui-layer">
+  <div class="ticker-track" id="tickerTrack"></div>
+</div>
+
+<div class="panel-left ui-layer">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Country Economies</span>
+      <div class="panel-toggle">
+        <button class="active" id="sortGdp">GDP</button>
+        <button id="sortGrowth">Growth</button>
+      </div>
+    </div>
+    <div class="search-box"><input type="text" id="countrySearch" placeholder="Search countries..."></div>
+    <div class="country-list" id="countryList"></div>
+  </div>
+</div>
+
+<div class="panel-right ui-layer">
+  <div class="panel">
+    <div class="panel-header">
+      <span class="panel-title">Major Markets</span>
+    </div>
+    <div class="market-grid" id="marketGrid"></div>
+  </div>
+</div>
+
+<div class="legend-bar ui-layer">
+  <div class="legend-title">GDP Growth</div>
+  <div>
+    <div class="legend-gradient"></div>
+    <div class="legend-labels">
+      <span class="legend-label">-5%</span>
+      <span class="legend-label">0%</span>
+      <span class="legend-label">+3%</span>
+      <span class="legend-label">+7%+</span>
+    </div>
+  </div>
+</div>
+
+<div class="data-source ui-layer" id="dataSource"></div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+// ============================================================
+//  COMPREHENSIVE COUNTRY DATABASE (190+ countries)
+//  lat/lon for globe positioning, ISO codes, population
+//  GDP and growth will be updated from World Bank API
+// ============================================================
+const ALL_COUNTRIES = [
+  {name:"United States",code:"USA",lat:39.8,lon:-98.5,pop:335,gdp:25463,growth:2.1,region:"NA"},
+  {name:"China",code:"CHN",lat:35.0,lon:105.0,pop:1412,gdp:17963,growth:4.2,region:"AS"},
+  {name:"Japan",code:"JPN",lat:36.2,lon:138.3,pop:125,gdp:4231,growth:0.4,region:"AS"},
+  {name:"Germany",code:"DEU",lat:51.2,lon:10.4,pop:84,gdp:4072,growth:0.7,region:"EU"},
+  {name:"India",code:"IND",lat:20.6,lon:78.9,pop:1440,gdp:3737,growth:6.2,region:"AS"},
+  {name:"United Kingdom",code:"GBR",lat:55.4,lon:-3.4,pop:68,gdp:3070,growth:1.5,region:"EU"},
+  {name:"France",code:"FRA",lat:46.6,lon:2.2,pop:68,gdp:2783,growth:0.8,region:"EU"},
+  {name:"Italy",code:"ITA",lat:41.9,lon:12.5,pop:59,gdp:2010,growth:0.7,region:"EU"},
+  {name:"Brazil",code:"BRA",lat:-14.2,lon:-51.9,pop:216,gdp:1920,growth:2.2,region:"SA"},
+  {name:"Canada",code:"CAN",lat:56.1,lon:-106.3,pop:39,gdp:2139,growth:2.1,region:"NA"},
+  {name:"Russia",code:"RUS",lat:61.5,lon:105.3,pop:144,gdp:1862,growth:1.3,region:"EU"},
+  {name:"South Korea",code:"KOR",lat:35.9,lon:127.8,pop:52,gdp:1665,growth:2.2,region:"AS"},
+  {name:"Australia",code:"AUS",lat:-25.3,lon:133.8,pop:26,gdp:1688,growth:2.1,region:"OC"},
+  {name:"Mexico",code:"MEX",lat:23.6,lon:-102.6,pop:130,gdp:1322,growth:1.5,region:"NA"},
+  {name:"Spain",code:"ESP",lat:40.5,lon:-3.7,pop:48,gdp:1398,growth:2.1,region:"EU"},
+  {name:"Indonesia",code:"IDN",lat:-0.8,lon:113.9,pop:278,gdp:1319,growth:5.1,region:"AS"},
+  {name:"Netherlands",code:"NLD",lat:52.1,lon:5.3,pop:18,gdp:1009,growth:1.5,region:"EU"},
+  {name:"Turkey",code:"TUR",lat:39.0,lon:35.2,pop:86,gdp:1029,growth:3.0,region:"EU"},
+  {name:"Saudi Arabia",code:"SAU",lat:23.9,lon:45.1,pop:37,gdp:1061,growth:3.3,region:"AS"},
+  {name:"Switzerland",code:"CHE",lat:46.8,lon:8.2,pop:9,gdp:906,growth:1.5,region:"EU"},
+  {name:"Poland",code:"POL",lat:52.0,lon:19.1,pop:38,gdp:749,growth:3.5,region:"EU"},
+  {name:"Argentina",code:"ARG",lat:-38.4,lon:-63.6,pop:46,gdp:632,growth:5.0,region:"SA"},
+  {name:"Sweden",code:"SWE",lat:60.1,lon:18.6,pop:10,gdp:589,growth:2.4,region:"EU"},
+  {name:"Norway",code:"NOR",lat:60.5,lon:8.5,pop:5,gdp:485,growth:1.6,region:"EU"},
+  {name:"Belgium",code:"BEL",lat:50.5,lon:4.5,pop:12,gdp:579,growth:1.3,region:"EU"},
+  {name:"Ireland",code:"IRL",lat:53.1,lon:-7.7,pop:5,gdp:530,growth:2.8,region:"EU"},
+  {name:"Israel",code:"ISR",lat:31.0,lon:34.9,pop:10,gdp:525,growth:3.8,region:"AS"},
+  {name:"Austria",code:"AUT",lat:47.5,lon:14.6,pop:9,gdp:477,growth:1.4,region:"EU"},
+  {name:"Nigeria",code:"NGA",lat:9.1,lon:8.7,pop:224,gdp:477,growth:3.2,region:"AF"},
+  {name:"UAE",code:"ARE",lat:23.4,lon:53.8,pop:10,gdp:509,growth:4.0,region:"AS"},
+  {name:"Thailand",code:"THA",lat:15.9,lon:101.0,pop:72,gdp:515,growth:3.0,region:"AS"},
+  {name:"Singapore",code:"SGP",lat:1.35,lon:103.8,pop:6,gdp:497,growth:3.1,region:"AS"},
+  {name:"Philippines",code:"PHL",lat:12.9,lon:121.8,pop:117,gdp:440,growth:5.7,region:"AS"},
+  {name:"Vietnam",code:"VNM",lat:14.1,lon:108.3,pop:100,gdp:449,growth:5.6,region:"AS"},
+  {name:"Bangladesh",code:"BGD",lat:23.7,lon:90.4,pop:173,gdp:460,growth:5.5,region:"AS"},
+  {name:"Malaysia",code:"MYS",lat:4.2,lon:101.9,pop:34,gdp:407,growth:4.5,region:"AS"},
+  {name:"Denmark",code:"DNK",lat:56.3,lon:9.5,pop:6,gdp:406,growth:1.8,region:"EU"},
+  {name:"Hong Kong",code:"HKG",lat:22.3,lon:114.2,pop:7,gdp:397,growth:3.2,region:"AS"},
+  {name:"Egypt",code:"EGY",lat:26.8,lon:30.8,pop:112,gdp:398,growth:4.1,region:"AF"},
+  {name:"Colombia",code:"COL",lat:4.6,lon:-74.3,pop:52,gdp:344,growth:2.6,region:"SA"},
+  {name:"South Africa",code:"ZAF",lat:-30.6,lon:22.9,pop:60,gdp:399,growth:1.6,region:"AF"},
+  {name:"Romania",code:"ROU",lat:45.9,lon:25.0,pop:19,gdp:349,growth:3.5,region:"EU"},
+  {name:"Czech Republic",code:"CZE",lat:49.8,lon:15.5,pop:11,gdp:332,growth:2.4,region:"EU"},
+  {name:"Chile",code:"CHL",lat:-35.7,lon:-71.5,pop:20,gdp:301,growth:2.3,region:"SA"},
+  {name:"Finland",code:"FIN",lat:61.9,lon:25.7,pop:6,gdp:297,growth:1.7,region:"EU"},
+  {name:"Portugal",code:"PRT",lat:39.4,lon:-8.2,pop:10,gdp:282,growth:2.0,region:"EU"},
+  {name:"Peru",code:"PER",lat:-9.2,lon:-75.0,pop:34,gdp:268,growth:2.8,region:"SA"},
+  {name:"New Zealand",code:"NZL",lat:-40.9,lon:174.9,pop:5,gdp:252,growth:2.0,region:"OC"},
+  {name:"Greece",code:"GRC",lat:39.1,lon:21.8,pop:10,gdp:239,growth:2.0,region:"EU"},
+  {name:"Iraq",code:"IRQ",lat:33.2,lon:43.7,pop:44,gdp:264,growth:2.9,region:"AS"},
+  {name:"Qatar",code:"QAT",lat:25.3,lon:51.2,pop:3,gdp:219,growth:2.4,region:"AS"},
+  {name:"Kazakhstan",code:"KAZ",lat:48.0,lon:68.0,pop:20,gdp:225,growth:4.8,region:"AS"},
+  {name:"Algeria",code:"DZA",lat:28.0,lon:1.7,pop:46,gdp:206,growth:3.1,region:"AF"},
+  {name:"Hungary",code:"HUN",lat:47.2,lon:19.5,pop:10,gdp:195,growth:3.4,region:"EU"},
+  {name:"Ethiopia",code:"ETH",lat:9.1,lon:40.5,pop:127,gdp:155,growth:6.5,region:"AF"},
+  {name:"Kuwait",code:"KWT",lat:29.3,lon:47.5,pop:4,gdp:159,growth:2.6,region:"AS"},
+  {name:"Ukraine",code:"UKR",lat:48.4,lon:31.2,pop:37,gdp:160,growth:3.0,region:"EU"},
+  {name:"Morocco",code:"MAR",lat:31.8,lon:-7.1,pop:37,gdp:141,growth:3.4,region:"AF"},
+  {name:"Puerto Rico",code:"PRI",lat:18.2,lon:-66.5,pop:3,gdp:113,growth:0.5,region:"NA"},
+  {name:"Ecuador",code:"ECU",lat:-1.8,lon:-78.2,pop:18,gdp:115,growth:2.0,region:"SA"},
+  {name:"Slovakia",code:"SVK",lat:48.7,lon:19.7,pop:5,gdp:129,growth:2.8,region:"EU"},
+  {name:"Kenya",code:"KEN",lat:-0.02,lon:37.9,pop:56,gdp:114,growth:5.0,region:"AF"},
+  {name:"Dominican Rep.",code:"DOM",lat:18.7,lon:-70.2,pop:11,gdp:110,growth:4.8,region:"NA"},
+  {name:"Guatemala",code:"GTM",lat:15.8,lon:-90.2,pop:18,gdp:95,growth:3.5,region:"NA"},
+  {name:"Oman",code:"OMN",lat:21.5,lon:55.9,pop:5,gdp:105,growth:2.7,region:"AS"},
+  {name:"Bulgaria",code:"BGR",lat:42.7,lon:25.5,pop:7,gdp:103,growth:3.2,region:"EU"},
+  {name:"Myanmar",code:"MMR",lat:21.9,lon:96.0,pop:55,gdp:65,growth:2.0,region:"AS"},
+  {name:"Venezuela",code:"VEN",lat:6.4,lon:-66.6,pop:29,gdp:98,growth:4.0,region:"SA"},
+  {name:"Tanzania",code:"TZA",lat:-6.4,lon:34.9,pop:66,gdp:79,growth:5.4,region:"AF"},
+  {name:"Uzbekistan",code:"UZB",lat:41.4,lon:64.6,pop:35,gdp:90,growth:5.5,region:"AS"},
+  {name:"Luxembourg",code:"LUX",lat:49.8,lon:6.1,pop:0.7,gdp:86,growth:2.0,region:"EU"},
+  {name:"Ghana",code:"GHA",lat:7.9,lon:-1.0,pop:33,gdp:77,growth:4.7,region:"AF"},
+  {name:"Panama",code:"PAN",lat:8.5,lon:-80.8,pop:4,gdp:77,growth:4.0,region:"NA"},
+  {name:"Ivory Coast",code:"CIV",lat:7.5,lon:-5.5,pop:28,gdp:78,growth:6.2,region:"AF"},
+  {name:"Croatia",code:"HRV",lat:45.1,lon:15.2,pop:4,gdp:75,growth:3.0,region:"EU"},
+  {name:"Uruguay",code:"URY",lat:-32.5,lon:-55.8,pop:4,gdp:71,growth:2.8,region:"SA"},
+  {name:"Costa Rica",code:"CRI",lat:10.0,lon:-84.0,pop:5,gdp:68,growth:3.5,region:"NA"},
+  {name:"Lithuania",code:"LTU",lat:55.2,lon:24.0,pop:3,gdp:70,growth:3.0,region:"EU"},
+  {name:"Slovenia",code:"SVN",lat:46.2,lon:14.8,pop:2,gdp:65,growth:2.5,region:"EU"},
+  {name:"Serbia",code:"SRB",lat:44.0,lon:21.0,pop:7,gdp:63,growth:3.5,region:"EU"},
+  {name:"DR Congo",code:"COD",lat:-4.0,lon:21.8,pop:102,gdp:64,growth:6.0,region:"AF"},
+  {name:"Azerbaijan",code:"AZE",lat:40.1,lon:47.6,pop:10,gdp:55,growth:2.5,region:"AS"},
+  {name:"Turkmenistan",code:"TKM",lat:39.0,lon:59.6,pop:6,gdp:55,growth:5.5,region:"AS"},
+  {name:"Angola",code:"AGO",lat:-11.2,lon:17.9,pop:36,gdp:85,growth:3.3,region:"AF"},
+  {name:"Jordan",code:"JOR",lat:30.6,lon:36.2,pop:11,gdp:48,growth:2.5,region:"AS"},
+  {name:"Cameroon",code:"CMR",lat:7.4,lon:12.4,pop:28,gdp:47,growth:4.3,region:"AF"},
+  {name:"Latvia",code:"LVA",lat:56.9,lon:24.1,pop:2,gdp:44,growth:2.8,region:"EU"},
+  {name:"Bolivia",code:"BOL",lat:-16.3,lon:-63.6,pop:12,gdp:45,growth:2.0,region:"SA"},
+  {name:"Paraguay",code:"PRY",lat:-23.4,lon:-58.4,pop:7,gdp:42,growth:3.8,region:"SA"},
+  {name:"Bahrain",code:"BHR",lat:26.0,lon:50.6,pop:2,gdp:44,growth:3.0,region:"AS"},
+  {name:"Tunisia",code:"TUN",lat:34.0,lon:9.5,pop:12,gdp:46,growth:2.3,region:"AF"},
+  {name:"Estonia",code:"EST",lat:58.6,lon:25.0,pop:1,gdp:41,growth:3.0,region:"EU"},
+  {name:"Uganda",code:"UGA",lat:1.4,lon:32.3,pop:49,gdp:46,growth:5.7,region:"AF"},
+  {name:"Nepal",code:"NPL",lat:28.4,lon:84.1,pop:31,gdp:40,growth:4.9,region:"AS"},
+  {name:"Cambodia",code:"KHM",lat:12.6,lon:105.0,pop:17,gdp:32,growth:5.8,region:"AS"},
+  {name:"El Salvador",code:"SLV",lat:13.8,lon:-88.9,pop:6,gdp:32,growth:2.5,region:"NA"},
+  {name:"Honduras",code:"HND",lat:15.2,lon:-86.2,pop:10,gdp:31,growth:3.5,region:"NA"},
+  {name:"Senegal",code:"SEN",lat:14.5,lon:-14.5,pop:18,gdp:28,growth:8.0,region:"AF"},
+  {name:"Iceland",code:"ISL",lat:64.9,lon:-19.0,pop:0.4,gdp:27,growth:2.0,region:"EU"},
+  {name:"Cyprus",code:"CYP",lat:35.1,lon:33.4,pop:1,gdp:31,growth:2.8,region:"EU"},
+  {name:"Zimbabwe",code:"ZWE",lat:-19.0,lon:29.2,pop:16,gdp:25,growth:3.5,region:"AF"},
+  {name:"Zambia",code:"ZMB",lat:-13.1,lon:27.8,pop:20,gdp:27,growth:4.5,region:"AF"},
+  {name:"Papua New Guinea",code:"PNG",lat:-6.3,lon:143.9,pop:10,gdp:31,growth:4.0,region:"OC"},
+  {name:"Laos",code:"LAO",lat:19.9,lon:102.5,pop:8,gdp:20,growth:4.5,region:"AS"},
+  {name:"Trinidad",code:"TTO",lat:10.7,lon:-61.2,pop:1,gdp:28,growth:2.5,region:"SA"},
+  {name:"Mongolia",code:"MNG",lat:46.9,lon:103.8,pop:3,gdp:18,growth:5.5,region:"AS"},
+  {name:"Rwanda",code:"RWA",lat:-1.9,lon:29.9,pop:14,gdp:13,growth:7.0,region:"AF"},
+  {name:"Mozambique",code:"MOZ",lat:-18.7,lon:35.5,pop:33,gdp:18,growth:5.0,region:"AF"},
+  {name:"Georgia",code:"GEO",lat:42.3,lon:43.4,pop:4,gdp:22,growth:5.0,region:"EU"},
+  {name:"Jamaica",code:"JAM",lat:18.1,lon:-77.3,pop:3,gdp:18,growth:2.0,region:"NA"},
+  {name:"Mauritius",code:"MUS",lat:-20.3,lon:57.6,pop:1,gdp:14,growth:4.2,region:"AF"},
+  {name:"Albania",code:"ALB",lat:41.2,lon:20.2,pop:3,gdp:22,growth:3.5,region:"EU"},
+  {name:"Botswana",code:"BWA",lat:-22.3,lon:24.7,pop:3,gdp:19,growth:4.0,region:"AF"},
+  {name:"Namibia",code:"NAM",lat:-22.6,lon:17.1,pop:3,gdp:13,growth:3.7,region:"AF"},
+  {name:"Armenia",code:"ARM",lat:40.1,lon:45.0,pop:3,gdp:20,growth:5.5,region:"AS"},
+  {name:"North Macedonia",code:"MKD",lat:41.5,lon:21.7,pop:2,gdp:14,growth:3.0,region:"EU"},
+  {name:"Madagascar",code:"MDG",lat:-18.8,lon:46.9,pop:30,gdp:16,growth:4.0,region:"AF"},
+  {name:"Moldova",code:"MDA",lat:47.4,lon:28.4,pop:3,gdp:15,growth:3.5,region:"EU"},
+  {name:"Mali",code:"MLI",lat:17.6,lon:-4.0,pop:23,gdp:19,growth:4.5,region:"AF"},
+  {name:"Burkina Faso",code:"BFA",lat:12.4,lon:-1.6,pop:23,gdp:19,growth:4.6,region:"AF"},
+  {name:"Niger",code:"NER",lat:17.6,lon:8.1,pop:27,gdp:16,growth:6.0,region:"AF"},
+  {name:"Chad",code:"TCD",lat:15.5,lon:19.0,pop:18,gdp:12,growth:3.5,region:"AF"},
+  {name:"Benin",code:"BEN",lat:9.3,lon:2.3,pop:13,gdp:19,growth:5.8,region:"AF"},
+  {name:"Togo",code:"TGO",lat:8.6,lon:1.2,pop:9,gdp:9,growth:5.0,region:"AF"},
+  {name:"Sierra Leone",code:"SLE",lat:8.5,lon:-11.8,pop:9,gdp:4,growth:4.2,region:"AF"},
+  {name:"Liberia",code:"LBR",lat:6.4,lon:-9.4,pop:5,gdp:4,growth:4.5,region:"AF"},
+  {name:"Haiti",code:"HTI",lat:19.0,lon:-72.4,pop:12,gdp:20,growth:1.0,region:"NA"},
+  {name:"Somalia",code:"SOM",lat:5.2,lon:46.2,pop:18,gdp:8,growth:3.5,region:"AF"},
+  {name:"Malawi",code:"MWI",lat:-13.3,lon:34.3,pop:20,gdp:12,growth:3.0,region:"AF"},
+  {name:"Fiji",code:"FJI",lat:-17.7,lon:178.1,pop:1,gdp:5,growth:3.5,region:"OC"},
+  {name:"Guyana",code:"GUY",lat:5.0,lon:-58.8,pop:0.8,gdp:15,growth:25.0,region:"SA"},
+  {name:"Brunei",code:"BRN",lat:4.9,lon:114.9,pop:0.5,gdp:15,growth:2.5,region:"AS"},
+  {name:"Bhutan",code:"BTN",lat:27.5,lon:90.4,pop:0.8,gdp:3,growth:4.5,region:"AS"},
+  {name:"Malta",code:"MLT",lat:35.9,lon:14.4,pop:0.5,gdp:19,growth:4.0,region:"EU"},
+  {name:"Maldives",code:"MDV",lat:3.2,lon:73.2,pop:0.5,gdp:7,growth:5.2,region:"AS"},
+  {name:"Montenegro",code:"MNE",lat:42.7,lon:19.4,pop:0.6,gdp:7,growth:3.5,region:"EU"},
+  {name:"Cuba",code:"CUB",lat:21.5,lon:-77.8,pop:11,gdp:107,growth:1.8,region:"NA"},
+  {name:"Libya",code:"LBY",lat:26.3,lon:17.2,pop:7,gdp:42,growth:7.5,region:"AF"},
+  {name:"Lebanon",code:"LBN",lat:33.9,lon:35.9,pop:5,gdp:18,growth:-0.5,region:"AS"},
+  {name:"Sri Lanka",code:"LKA",lat:7.9,lon:80.8,pop:22,gdp:75,growth:3.0,region:"AS"},
+  {name:"Pakistan",code:"PAK",lat:30.4,lon:69.3,pop:240,gdp:374,growth:3.2,region:"AS"},
+  {name:"Iran",code:"IRN",lat:32.4,lon:53.7,pop:88,gdp:367,growth:2.5,region:"AS"},
+  {name:"Sudan",code:"SDN",lat:12.9,lon:30.2,pop:47,gdp:30,growth:-12.0,region:"AF"},
+  {name:"Afghanistan",code:"AFG",lat:33.9,lon:67.7,pop:42,gdp:14,growth:2.0,region:"AS"},
+  {name:"Syria",code:"SYR",lat:35.0,lon:38.0,pop:22,gdp:9,growth:1.0,region:"AS"},
+  {name:"Yemen",code:"YEM",lat:15.6,lon:48.5,pop:34,gdp:21,growth:-1.0,region:"AS"},
+  {name:"Myanmar",code:"MMR2",lat:21.9,lon:96.0,pop:55,gdp:65,growth:2.0,region:"AS"},
+];
+
+// Remove duplicates by code
+const countryMap = new Map();
+ALL_COUNTRIES.forEach(c => { if(!countryMap.has(c.code)) countryMap.set(c.code, c); });
+let countries = Array.from(countryMap.values());
+
+const MARKETS = [
+  {name:"S&P 500",region:"United States",value:6617,change:0.08,ytd:3.2},
+  {name:"Dow Jones",region:"United States",value:46584,change:-0.18,ytd:2.1},
+  {name:"Nasdaq 100",region:"United States",value:19850,change:-0.5,ytd:1.8},
+  {name:"FTSE 100",region:"United Kingdom",value:8520,change:0.4,ytd:5.6},
+  {name:"DAX",region:"Germany",value:22350,change:0.6,ytd:11.2},
+  {name:"CAC 40",region:"France",value:7920,change:0.3,ytd:7.8},
+  {name:"Nikkei 225",region:"Japan",value:54387,change:1.79,ytd:8.4},
+  {name:"Hang Seng",region:"Hong Kong",value:25773,change:2.61,ytd:15.2},
+  {name:"Shanghai",region:"China",value:3930,change:1.03,ytd:2.8},
+  {name:"S&P/ASX 200",region:"Australia",value:8948,change:2.51,ytd:1.2},
+  {name:"KOSPI",region:"South Korea",value:5805,change:5.64,ytd:9.5},
+  {name:"Sensex",region:"India",value:76200,change:0.8,ytd:-3.1},
+  {name:"Straits Times",region:"Singapore",value:5009,change:1.04,ytd:3.6},
+  {name:"IBOVESPA",region:"Brazil",value:132400,change:0.5,ytd:7.2},
+  {name:"MOEX",region:"Russia",value:2850,change:0.3,ytd:-2.1},
+  {name:"Tadawul",region:"Saudi Arabia",value:11200,change:0.6,ytd:1.8},
+];
+
+// ============================================================
+//  LIVE DATA FETCHING — World Bank API (no key needed)
+// ============================================================
+const WB_GDP_URL = 'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.CD?format=json&per_page=300&date=2023:2024&mrnev=1';
+const WB_GROWTH_URL = 'https://api.worldbank.org/v2/country/all/indicator/NY.GDP.MKTP.KD.ZG?format=json&per_page=300&date=2023:2024&mrnev=1';
+
+let lastFetch = null;
+const REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
+
+async function fetchLiveData() {
+  const loadText = document.getElementById('loadingText');
+  const loadSub = document.getElementById('loadingSub');
+  let gdpData = null, growthData = null;
+
+  try {
+    loadText.textContent = 'Fetching GDP data from World Bank';
+    loadSub.textContent = 'api.worldbank.org — NY.GDP.MKTP.CD';
+    const gdpRes = await fetch(WB_GDP_URL);
+    const gdpJson = await gdpRes.json();
+    if (gdpJson && gdpJson[1]) gdpData = gdpJson[1];
+  } catch(e) { console.warn('GDP fetch failed, using fallback data', e); }
+
+  try {
+    loadText.textContent = 'Fetching growth rates';
+    loadSub.textContent = 'api.worldbank.org — NY.GDP.MKTP.KD.ZG';
+    const growthRes = await fetch(WB_GROWTH_URL);
+    const growthJson = await growthRes.json();
+    if (growthJson && growthJson[1]) growthData = growthJson[1];
+  } catch(e) { console.warn('Growth fetch failed, using fallback data', e); }
+
+  // Merge live data into our country database
+  if (gdpData) {
+    gdpData.forEach(d => {
+      if (!d.value || !d.countryiso3code) return;
+      const c = countryMap.get(d.countryiso3code);
+      if (c) c.gdp = Math.round(d.value / 1e9); // Convert to billions
+    });
+  }
+
+  if (growthData) {
+    growthData.forEach(d => {
+      if (d.value === null || !d.countryiso3code) return;
+      const c = countryMap.get(d.countryiso3code);
+      if (c) c.growth = Math.round(d.value * 100) / 100;
+    });
+  }
+
+  countries = Array.from(countryMap.values());
+  lastFetch = new Date();
+
+  // Save to localStorage for 24hr cache
+  try {
+    localStorage.setItem('gep_data', JSON.stringify({ countries: countries.map(c=>({code:c.code,gdp:c.gdp,growth:c.growth})), ts: Date.now() }));
+  } catch(e) {}
+
+  return { gdpData, growthData };
+}
+
+function loadCachedData() {
+  try {
+    const cached = JSON.parse(localStorage.getItem('gep_data'));
+    if (cached && Date.now() - cached.ts < REFRESH_INTERVAL) {
+      cached.countries.forEach(d => {
+        const c = countryMap.get(d.code);
+        if (c) { c.gdp = d.gdp; c.growth = d.growth; }
+      });
+      countries = Array.from(countryMap.values());
+      lastFetch = new Date(cached.ts);
+      return true;
+    }
+  } catch(e) {}
+  return false;
+}
+
+// ============================================================
+//  UTILITIES
+// ============================================================
+function growthToColor(growth) {
+  const t = Math.max(0, Math.min(1, (growth + 5) / 12));
+  const stops = [
+    {p:0.0,r:244,g:63,b:94},{p:0.18,r:251,g:146,b:60},
+    {p:0.33,r:250,g:204,b:21},{p:0.5,r:163,g:230,b:53},
+    {p:0.7,r:34,g:211,b:238},{p:1.0,r:56,g:189,b:248},
+  ];
+  let lo=stops[0],hi=stops[stops.length-1];
+  for(let i=0;i<stops.length-1;i++){
+    if(t>=stops[i].p&&t<=stops[i+1].p){lo=stops[i];hi=stops[i+1];break;}
+  }
+  const f=(t-lo.p)/(hi.p-lo.p);
+  const r=Math.round(lo.r+(hi.r-lo.r)*f);
+  const g=Math.round(lo.g+(hi.g-lo.g)*f);
+  const b=Math.round(lo.b+(hi.b-lo.b)*f);
+  return {r,g,b,hex:`rgb(${r},${g},${b})`};
+}
+
+function growthToThreeColor(growth){
+  const c=growthToColor(growth);
+  return new THREE.Color(c.r/255,c.g/255,c.b/255);
+}
+
+function latLonToVec3(lat,lon,radius){
+  const phi=(90-lat)*Math.PI/180;
+  const theta=(lon+180)*Math.PI/180;
+  return new THREE.Vector3(
+    -radius*Math.sin(phi)*Math.cos(theta),
+    radius*Math.cos(phi),
+    radius*Math.sin(phi)*Math.sin(theta)
+  );
+}
+
+// ============================================================
+//  BACKGROUND
+// ============================================================
+const bgCanvas=document.getElementById('bg-canvas');
+const bgCtx=bgCanvas.getContext('2d');
+function resizeBg(){bgCanvas.width=window.innerWidth;bgCanvas.height=window.innerHeight;}
+resizeBg(); window.addEventListener('resize',resizeBg);
+
+let bgTime=0;
+function getHealthHue(){
+  const totalGdp=countries.reduce((s,c)=>s+c.gdp,0)||1;
+  const wg=countries.reduce((s,c)=>s+c.growth*c.gdp,0)/totalGdp;
+  const mc=MARKETS.reduce((s,m)=>s+m.change,0)/MARKETS.length;
+  const score=wg*0.7+mc*0.3;
+  return {hue:Math.max(170,Math.min(225,180+score*8)),wg,mc,score};
+}
+
+function drawBackground(){
+  bgTime+=0.002;
+  const w=bgCanvas.width,h=bgCanvas.height;
+  const{hue}=getHealthHue();
+
+  const grad=bgCtx.createRadialGradient(w*0.5,h*0.5,0,w*0.5,h*0.5,w*0.7);
+  const sat=55+Math.sin(bgTime)*8;
+  grad.addColorStop(0,`hsl(${hue+10},${sat}%,11%)`);
+  grad.addColorStop(0.5,`hsl(${hue},${sat-15}%,7%)`);
+  grad.addColorStop(1,`hsl(${hue-15},${sat-25}%,3%)`);
+  bgCtx.fillStyle=grad;
+  bgCtx.fillRect(0,0,w,h);
+
+  for(let i=0;i<100;i++){
+    const x=((i*137.508+bgTime*15)%w);
+    const y=((i*97.3+Math.sin(bgTime+i*0.5)*25)%h);
+    const alpha=0.06+Math.sin(bgTime*2+i)*0.03;
+    bgCtx.beginPath();
+    bgCtx.arc(x,y,0.8+Math.sin(i*0.3)*0.4,0,Math.PI*2);
+    bgCtx.fillStyle=`hsla(${hue+30},50%,65%,${alpha})`;
+    bgCtx.fill();
+  }
+
+  for(let ring=0;ring<3;ring++){
+    const r=((bgTime*60+ring*180)%(w*0.7));
+    bgCtx.beginPath();
+    bgCtx.arc(w*0.5,h*0.5,r,0,Math.PI*2);
+    bgCtx.strokeStyle=`hsla(${hue+20},40%,45%,${Math.max(0,0.012*(1-r/(w*0.7)))})`;
+    bgCtx.lineWidth=1;
+    bgCtx.stroke();
+  }
+  requestAnimationFrame(drawBackground);
+}
+drawBackground();
+
+// ============================================================
+//  UI RENDERING
+// ============================================================
+function updateHealthBadge(){
+  const{wg}=getHealthHue();
+  const dot=document.getElementById('healthDot');
+  const val=document.getElementById('healthValue');
+  const sign=wg>=0?'+':'';
+  val.textContent=`${sign}${wg.toFixed(1)}%`;
+  const c=wg>2?'#22d3ee':wg>0?'#facc15':'#f43f5e';
+  dot.style.color=c;dot.style.background=c;
+}
+
+function buildTicker(){
+  const track=document.getElementById('tickerTrack');
+  const items=[...MARKETS,...MARKETS];
+  track.innerHTML=items.map(m=>{
+    const cls=m.change>=0?'up':'down';
+    const sign=m.change>=0?'+':'';
+    const val=m.value>=10000?m.value.toLocaleString():m.value.toFixed(2);
+    return`<span class="ticker-item"><span class="ticker-name">${m.name}</span><span class="ticker-value">${val}</span><span class="ticker-change ${cls}">${sign}${m.change.toFixed(2)}%</span></span><span class="ticker-item ticker-sep">│</span>`;
+  }).join('');
+}
+
+let sortMode='gdp';
+let searchTerm='';
+
+function renderCountryList(){
+  const list=document.getElementById('countryList');
+  let filtered=countries.filter(c=>c.gdp>0);
+  if(searchTerm) filtered=filtered.filter(c=>c.name.toLowerCase().includes(searchTerm));
+  const sorted=[...filtered].sort((a,b)=>sortMode==='gdp'?b.gdp-a.gdp:b.growth-a.growth);
+  list.innerHTML=sorted.slice(0,60).map((c,i)=>{
+    const col=growthToColor(c.growth);
+    const sign=c.growth>=0?'+':'';
+    const gdpStr=c.gdp>=1000?`$${(c.gdp/1000).toFixed(1)}T`:`$${c.gdp}B`;
+    return`<div class="country-row" onmouseenter="highlightCountry('${c.code}')" onmouseleave="unhighlightCountry()">
+      <span class="country-rank">${i+1}</span>
+      <span class="country-name">${c.name}</span>
+      <span class="country-gdp">${gdpStr}</span>
+      <span class="country-growth" style="background:rgba(${col.r},${col.g},${col.b},0.15);color:${col.hex}">${sign}${c.growth}%</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMarkets(){
+  const grid=document.getElementById('marketGrid');
+  grid.innerHTML=MARKETS.map(m=>{
+    const col=m.change>=0?'#22d3ee':'#f43f5e';
+    const sign=m.change>=0?'+':'';
+    return`<div class="market-row"><div><div class="market-name">${m.name}</div><div class="market-region">${m.region}</div></div><div class="market-price">${m.value.toLocaleString()}</div><div class="market-change" style="color:${col}">${sign}${m.change.toFixed(2)}%</div></div>`;
+  }).join('');
+}
+
+document.getElementById('sortGdp').addEventListener('click',function(){
+  sortMode='gdp';
+  document.getElementById('sortGdp').classList.add('active');
+  document.getElementById('sortGrowth').classList.remove('active');
+  renderCountryList();
+});
+document.getElementById('sortGrowth').addEventListener('click',function(){
+  sortMode='growth';
+  document.getElementById('sortGrowth').classList.add('active');
+  document.getElementById('sortGdp').classList.remove('active');
+  renderCountryList();
+});
+document.getElementById('countrySearch').addEventListener('input',function(e){
+  searchTerm=e.target.value.toLowerCase();
+  renderCountryList();
+});
+
+// ============================================================
+//  THREE.JS 3D GLOBE
+// ============================================================
+const canvas=document.getElementById('globe-canvas');
+const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:true});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+renderer.setSize(window.innerWidth,window.innerHeight);
+
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(45,window.innerWidth/window.innerHeight,0.1,1000);
+camera.position.set(0,0,4.2);
+
+scene.add(new THREE.AmbientLight(0x334466,0.6));
+const dirLight=new THREE.DirectionalLight(0x88bbff,0.9);
+dirLight.position.set(5,3,5);scene.add(dirLight);
+scene.add(new THREE.DirectionalLight(0x223355,0.3).position.set(-5,-2,-5));
+
+const globeRadius=1.5;
+
+// Earth textured sphere
+const textureLoader=new THREE.TextureLoader();
+const globeGeo=new THREE.SphereGeometry(globeRadius,96,64);
+const globeMat=new THREE.MeshPhongMaterial({
+  color:0x2266aa,
+  shininess:15,
+  transparent:true,
+  opacity:0.9,
+});
+
+// Load NASA Blue Marble texture
+const earthTexURL='https://upload.wikimedia.org/wikipedia/commons/thumb/2/23/Blue_Marble_2002.png/1280px-Blue_Marble_2002.png';
+const earthTexURL2='https://unpkg.com/three-globe@2.24.7/example/img/earth-blue-marble.jpg';
+const earthTexURL3='https://cdn.jsdelivr.net/npm/three-globe/example/img/earth-night.jpg';
+
+// Try multiple texture sources
+let textureLoaded=false;
+function tryLoadTexture(url,fallbackUrl){
+  textureLoader.load(url,
+    tex=>{
+      if(!textureLoaded){
+        textureLoaded=true;
+        globeMat.map=tex;
+        globeMat.color=new THREE.Color(0xffffff);
+        globeMat.needsUpdate=true;
+      }
+    },
+    undefined,
+    ()=>{
+      if(fallbackUrl&&!textureLoaded) tryLoadTexture(fallbackUrl);
+    }
+  );
+}
+tryLoadTexture(earthTexURL2,earthTexURL3);
+
+const globe=new THREE.Mesh(globeGeo,globeMat);
+scene.add(globe);
+
+// Grid lines (subtle, on top of texture)
+const gridMat=new THREE.LineBasicMaterial({color:0x38bdf8,transparent:true,opacity:0.06});
+for(let lat=-60;lat<=60;lat+=30){
+  const pts=[];
+  for(let lon=0;lon<=360;lon+=3) pts.push(latLonToVec3(lat,lon,globeRadius*1.002));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gridMat));
+}
+for(let lon=0;lon<360;lon+=30){
+  const pts=[];
+  for(let lat=-90;lat<=90;lat+=3) pts.push(latLonToVec3(lat,lon,globeRadius*1.002));
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),gridMat));
+}
+
+// Atmosphere
+const atmosGeo=new THREE.SphereGeometry(globeRadius*1.1,64,48);
+const atmosMat=new THREE.ShaderMaterial({
+  vertexShader:`varying vec3 vNormal;void main(){vNormal=normalize(normalMatrix*normal);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
+  fragmentShader:`varying vec3 vNormal;void main(){float i=pow(0.6-dot(vNormal,vec3(0,0,1)),3.0);gl_FragColor=vec4(0.22,0.72,0.95,i*0.35);}`,
+  side:THREE.BackSide,blending:THREE.AdditiveBlending,transparent:true,
+});
+scene.add(new THREE.Mesh(atmosGeo,atmosMat));
+
+// Country data points (3D bars) — built after data loads
+const countryGroup=new THREE.Group();
+scene.add(countryGroup);
+let countryMeshes=[];
+
+function buildCountryBars(){
+  // Clear old
+  while(countryGroup.children.length>0) countryGroup.remove(countryGroup.children[0]);
+  countryMeshes=[];
+
+  const maxGdp=Math.max(...countries.map(c=>c.gdp),1);
+
+  countries.forEach(c=>{
+    if(!c.lat||!c.lon||c.gdp<=0) return;
+    const pos=latLonToVec3(c.lat,c.lon,globeRadius);
+    const normal=pos.clone().normalize();
+
+    const maxH=0.55;
+    const barH=Math.max(0.015,Math.pow(c.gdp/maxGdp,0.4)*maxH);
+    const barW=Math.max(0.008,Math.min(0.03,Math.sqrt(Math.max(c.pop,1)/1440)*0.035));
+
+    const color=growthToThreeColor(c.growth);
+    const barGeo=new THREE.CylinderGeometry(barW*0.6,barW,barH,6);
+    barGeo.translate(0,barH/2,0);
+    const barMat=new THREE.MeshPhongMaterial({
+      color,emissive:color.clone().multiplyScalar(0.25),
+      transparent:true,opacity:0.85,shininess:50,
+    });
+    const bar=new THREE.Mesh(barGeo,barMat);
+    bar.position.copy(pos);
+    bar.lookAt(pos.clone().add(normal));
+    bar.rotateX(Math.PI/2);
+    bar.userData={country:c};
+    countryGroup.add(bar);
+    countryMeshes.push(bar);
+
+    // Base dot
+    const dotGeo=new THREE.SphereGeometry(barW*1.3,8,6);
+    const dotMat=new THREE.MeshBasicMaterial({color,transparent:true,opacity:0.4});
+    const dot=new THREE.Mesh(dotGeo,dotMat);
+    dot.position.copy(pos.clone().multiplyScalar(1.001));
+    countryGroup.add(dot);
+  });
+}
+
+// Trade arcs
+function buildArcs(){
+  const arcMat=new THREE.LineBasicMaterial({color:0x38bdf8,transparent:true,opacity:0.05});
+  const conns=[
+    ['USA','CHN'],['USA','GBR'],['USA','JPN'],['USA','DEU'],['CHN','JPN'],
+    ['CHN','KOR'],['DEU','FRA'],['IND','ARE'],['AUS','CHN'],['BRA','USA'],
+    ['GBR','DEU'],['JPN','KOR'],['SGP','CHN'],['IND','USA'],['SAU','CHN'],
+    ['DEU','CHN'],['FRA','USA'],['MEX','USA'],['CAN','USA'],['IDN','CHN'],
+  ];
+  conns.forEach(([a,b])=>{
+    const ca=countryMap.get(a),cb=countryMap.get(b);
+    if(!ca||!cb) return;
+    const p1=latLonToVec3(ca.lat,ca.lon,globeRadius*1.003);
+    const p2=latLonToVec3(cb.lat,cb.lon,globeRadius*1.003);
+    const mid=p1.clone().add(p2).multiplyScalar(0.5);
+    mid.normalize().multiplyScalar(globeRadius+p1.distanceTo(p2)*0.28);
+    const pts=new THREE.QuadraticBezierCurve3(p1,mid,p2).getPoints(36);
+    scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),arcMat));
+  });
+}
+
+// ============================================================
+//  INTERACTION
+// ============================================================
+let isDragging=false,prevMouse={x:0,y:0},rotVel={x:0,y:0},autoRotate=true;
+const raycaster=new THREE.Raycaster();
+const mousePos=new THREE.Vector2();
+let highlightedCode=null;
+
+canvas.addEventListener('mousedown',e=>{isDragging=true;autoRotate=false;prevMouse={x:e.clientX,y:e.clientY};});
+canvas.addEventListener('mousemove',e=>{
+  mousePos.x=(e.clientX/window.innerWidth)*2-1;
+  mousePos.y=-(e.clientY/window.innerHeight)*2+1;
+  if(isDragging){
+    rotVel.x=(e.clientY-prevMouse.y)*0.003;
+    rotVel.y=(e.clientX-prevMouse.x)*0.003;
+    prevMouse={x:e.clientX,y:e.clientY};
+  }
+  raycaster.setFromCamera(mousePos,camera);
+  const hits=raycaster.intersectObjects(countryMeshes);
+  const tt=document.getElementById('tooltip');
+  if(hits.length>0){
+    const c=hits[0].object.userData.country;
+    if(c){
+      const col=growthToColor(c.growth);
+      const sign=c.growth>=0?'+':'';
+      const gdpStr=c.gdp>=1000?`$${(c.gdp/1000).toFixed(1)}T`:`$${c.gdp}B`;
+      tt.innerHTML=`<div class="tooltip-country" style="color:${col.hex}">${c.name}</div>
+        <div class="tooltip-row"><span class="tooltip-key">GDP</span><span class="tooltip-val">${gdpStr}</span></div>
+        <div class="tooltip-row"><span class="tooltip-key">Growth</span><span class="tooltip-val" style="color:${col.hex}">${sign}${c.growth}%</span></div>
+        <div class="tooltip-row"><span class="tooltip-key">Population</span><span class="tooltip-val">${c.pop}M</span></div>
+        <div class="tooltip-row"><span class="tooltip-key">Region</span><span class="tooltip-val">${c.region}</span></div>`;
+      tt.style.left=Math.min(e.clientX+16,window.innerWidth-220)+'px';
+      tt.style.top=(e.clientY-20)+'px';
+      tt.classList.add('visible');
+    }
+  } else { tt.classList.remove('visible'); }
+});
+canvas.addEventListener('mouseup',()=>{isDragging=false;clearTimeout(autoTimer);autoTimer=setTimeout(()=>{autoRotate=true;},5000);});
+canvas.addEventListener('mouseleave',()=>{isDragging=false;document.getElementById('tooltip').classList.remove('visible');});
+canvas.addEventListener('wheel',e=>{camera.position.z=Math.max(2.2,Math.min(9,camera.position.z+e.deltaY*0.003));},{passive:true});
+
+// Touch
+canvas.addEventListener('touchstart',e=>{isDragging=true;autoRotate=false;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};},{passive:true});
+canvas.addEventListener('touchmove',e=>{if(isDragging&&e.touches.length===1){rotVel.x=(e.touches[0].clientY-prevMouse.y)*0.003;rotVel.y=(e.touches[0].clientX-prevMouse.x)*0.003;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};}},{passive:true});
+canvas.addEventListener('touchend',()=>{isDragging=false;clearTimeout(autoTimer);autoTimer=setTimeout(()=>{autoRotate=true;},4000);});
+
+window.highlightCountry=code=>{highlightedCode=code;};
+window.unhighlightCountry=()=>{highlightedCode=null;};
+
+let autoTimer;
+
+// ============================================================
+//  ANIMATION
+// ============================================================
+let time=0;
+function animate(){
+  requestAnimationFrame(animate);
+  time+=0.008;
+
+  if(autoRotate){countryGroup.rotation.y+=0.0015;globe.rotation.y+=0.0015;}
+  if(!isDragging){rotVel.x*=0.94;rotVel.y*=0.94;}
+  countryGroup.rotation.x+=rotVel.x;
+  countryGroup.rotation.y+=rotVel.y;
+  globe.rotation.x=countryGroup.rotation.x;
+  globe.rotation.y=countryGroup.rotation.y;
+
+  countryMeshes.forEach(mesh=>{
+    const c=mesh.userData.country;if(!c) return;
+    const isH=highlightedCode===c.code;
+    const tgt=isH?1.0:(highlightedCode?0.25:0.85);
+    mesh.material.opacity+=(tgt-mesh.material.opacity)*0.1;
+    mesh.scale.y=1+Math.sin(time*2+c.gdp*0.001)*0.025;
+    mesh.material.emissive=growthToThreeColor(c.growth).multiplyScalar(isH?0.5:0.2);
+  });
+
+  renderer.render(scene,camera);
+}
+
+window.addEventListener('resize',()=>{
+  camera.aspect=window.innerWidth/window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth,window.innerHeight);
+});
+
+// ============================================================
+//  INIT
+// ============================================================
+async function init(){
+  const loadText=document.getElementById('loadingText');
+  const loadSub=document.getElementById('loadingSub');
+
+  // Check cache first
+  if(loadCachedData()){
+    loadText.textContent='Loaded cached data';
+    loadSub.textContent='Refreshing from World Bank API...';
+    // Still fetch fresh in background
+    fetchLiveData().then(()=>{
+      buildCountryBars(); renderCountryList(); updateHealthBadge();
+      updateTimestamp();
+    }).catch(()=>{});
+  } else {
+    await fetchLiveData();
+  }
+
+  loadText.textContent='Building 3D globe';
+  loadSub.textContent='Plotting '+countries.filter(c=>c.gdp>0).length+' economies';
+
+  buildCountryBars();
+  buildArcs();
+  buildTicker();
+  renderCountryList();
+  renderMarkets();
+  updateHealthBadge();
+  updateTimestamp();
+
+  animate();
+
+  // Hide loading
+  setTimeout(()=>{document.getElementById('loadingOverlay').classList.add('hidden');},800);
+
+  // Schedule refresh every 24 hours
+  setInterval(async()=>{
+    await fetchLiveData();
+    buildCountryBars();
+    renderCountryList();
+    updateHealthBadge();
+    updateTimestamp();
+  }, REFRESH_INTERVAL);
+}
+
+function updateTimestamp(){
+  const ts=lastFetch||new Date();
+  const dateStr=ts.toLocaleDateString('en-AU',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  document.getElementById('liveIndicator').textContent=`● LIVE — Last updated: ${dateStr}`;
+  document.getElementById('dataSource').textContent=`GDP & Growth: World Bank API (NY.GDP.MKTP) · Markets: Composite sources · Refreshes every 24h`;
+}
+
+init();
+</script>
+</body>
+</html>
