@@ -1,0 +1,12 @@
+{
+    "LegacyPetStatus": [
+        {
+            "id": 1,
+            "pet_name": "Wolfee"
+        },
+        {
+            "id": 2,
+            "pet_name": "Uniee"
+        }
+    ]
+}
